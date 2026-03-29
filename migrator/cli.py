@@ -53,6 +53,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional file path to write the migration report",
     )
     parser.add_argument(
+        "--browser",
+        default="firefox",
+        choices=["firefox", "chrome"],
+        help="Browser to use for automation (default: firefox)",
+    )
+    parser.add_argument(
         "--headless",
         action="store_true",
         default=False,
@@ -74,6 +80,7 @@ def main(argv=None) -> None:
         confidence_threshold=args.confidence,
         output_path=args.output,
         headless=args.headless,
+        browser=args.browser,
     )
 
     migrator = Migrator()

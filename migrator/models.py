@@ -18,6 +18,7 @@ class ScrapedItem:
     fragrance_name: str
     brand: str
     review_text: str
+    review_title: str = ""  # defaults to fragrance name if not set
 
 
 @dataclass
@@ -45,3 +46,4 @@ class MigrationConfig:
     confidence_threshold: int = 80
     output_path: Optional[str] = None
     headless: bool = False
+    browser: str = "firefox"
