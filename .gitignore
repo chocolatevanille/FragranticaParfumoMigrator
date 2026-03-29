@@ -22,3 +22,6 @@ env/
 .vscode/
 .idea/
 .kiro/
+
+# Releases
+dist/
