@@ -14,12 +14,11 @@ from migrator.models import ScrapedItem
 logger = logging.getLogger(__name__)
 
 # CSS selectors for Fragrantica review cards — update here if the site changes.
-# The site uses a Vue.js/Tailwind stack; cards are identified by their rounded card class.
 _REVIEW_CARD_SELECTOR = "div.group.rounded-md"
-# Perfume thumbnail img: alt text is "{Fragrance Name} {Brand}" combined.
-_PERFUME_IMG_SELECTOR = "a[href*='/perfume/'] img"
-# Review body text lives inside a lazy-loaded prose container.
-_REVIEW_TEXT_SELECTOR = "div.group\\/lazy p"
+# Perfume link inside an h2: text is "Name — Brand", href is /perfume/{Brand-Slug}/{Name-id}.html
+_PERFUME_LINK_SELECTOR = "h2 a[href*='/perfume/']"
+# Review body text lives inside a prose container
+_REVIEW_TEXT_SELECTOR = "div.prose p"
 
 # How long to wait (seconds) after each scroll before checking for new reviews.
 _SCROLL_PAUSE = 1.5
@@ -121,37 +120,42 @@ class ReviewScraper(BaseScraper):
     def _parse(self, html: str) -> list[ScrapedItem]:
         """Parse *html* and return one :class:`ScrapedItem` per valid review card.
 
-        The Fragrantica profile page uses a Vue.js/Tailwind layout where each
-        review card is a ``div.group.rounded-md``.  The fragrance name and brand
-        are encoded together in the ``alt`` attribute of the perfume thumbnail
-        image (e.g. ``"Tuscan Leather Tom Ford"``).  The brand is also present
-        as the second path segment of the perfume URL
-        (``/perfume/{Brand-Slug}/{Name-id}.html``), which we use to split the
-        combined alt text reliably.
+        The Fragrantica profile page uses a Tailwind layout where each review
+        card is a ``div.group.rounded-md``.  The fragrance name and brand are
+        in an ``<a>`` link whose text is ``"Name — Brand"`` and whose href is
+        ``/perfume/{Brand-Slug}/{Name-id}.html``.  The review text lives inside
+        a ``div.prose p`` element.
         """
         soup = BeautifulSoup(html, "html.parser")
         cards = soup.select(_REVIEW_CARD_SELECTOR)
         items: list[ScrapedItem] = []
 
         for idx, card in enumerate(cards):
-            img_el = card.select_one(_PERFUME_IMG_SELECTOR)
-            text_el = card.select_one(_REVIEW_TEXT_SELECTOR)
+            # Find the perfume link — pick the one whose href contains /perfume/
+            # There may be duplicates (mobile + desktop), take the first.
+            link_el = card.select_one(_PERFUME_LINK_SELECTOR)
+            text_els = card.select(_REVIEW_TEXT_SELECTOR)
 
-            alt = img_el.get("alt", "").strip() if img_el else ""
-            review_text = text_el.get_text(strip=True) if text_el else None
-
-            # Derive brand from the URL slug so we can split the combined alt.
-            # URL pattern: /perfume/{Brand-Slug}/{Name-id}.html
             fragrance_name: str | None = None
             brand: str | None = None
-            if img_el:
-                link = img_el.find_parent("a")
-                href = link.get("href", "") if link else ""
+
+            if link_el:
+                href = link_el.get("href", "")
                 brand_slug = self._brand_from_href(href)
-                if brand_slug and alt:
-                    fragrance_name, brand = self._split_name_brand_from_alt(alt, brand_slug)
-                elif alt:
-                    fragrance_name = alt
+                link_text = link_el.get_text(strip=True)  # e.g. "Prodigy — Mind Games"
+                if "\u2014" in link_text and brand_slug:
+                    # Split on em-dash: left = name, right = brand display name
+                    parts = link_text.split("\u2014", 1)
+                    fragrance_name = parts[0].strip() or None
+                    brand = parts[1].strip() or None
+                elif link_text:
+                    fragrance_name = link_text
+
+            # Concatenate all <p> elements in the prose block as the review text
+            review_text: str | None = None
+            if text_els:
+                combined = "\n\n".join(p.get_text(strip=True) for p in text_els if p.get_text(strip=True))
+                review_text = combined or None
 
             missing = [
                 field
@@ -180,6 +184,7 @@ class ReviewScraper(BaseScraper):
                     fragrance_name=fragrance_name,  # type: ignore[arg-type]
                     brand=brand,  # type: ignore[arg-type]
                     review_text=review_text,  # type: ignore[arg-type]
+                    review_title=fragrance_name,  # type: ignore[arg-type]
                 )
             )
 

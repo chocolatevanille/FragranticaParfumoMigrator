@@ -26,6 +26,26 @@ class ReviewSubmitter(BaseSubmitter):
 
     def submit(self, item: ScrapedItem) -> SubmissionResult:
         """Find the fragrance on Parfumo and submit the review."""
+        # TODO: Reviews shorter than 300 characters should be posted as Statements
+        # instead of Reviews. Parfumo rejects reviews below this threshold.
+        # For now, skip them with an informative reason.
+        if len(item.review_text) < 300:
+            logger.warning(
+                "Skipping '%s' by '%s': review text is %d chars (minimum 300). "
+                "Consider posting as a Statement instead.",
+                item.fragrance_name,
+                item.brand,
+                len(item.review_text),
+            )
+            return SubmissionResult(
+                item=item,
+                status=SubmissionStatus.SKIPPED,
+                reason=(
+                    f"Review too short ({len(item.review_text)} chars, minimum 300). "
+                    "Post as a Statement instead (not yet implemented)."
+                ),
+            )
+
         candidates = self._search_autocomplete(item.fragrance_name)
         if not candidates:
             logger.warning(
@@ -104,17 +124,49 @@ class ReviewSubmitter(BaseSubmitter):
         Type fragrance_name into the Parfumo live-search and collect suggestions.
         Returns a list of (display_name, url) tuples from .ls-perfume-item elements.
         """
+        import time
         try:
+            # Ensure we're on Parfumo before searching
+            if "parfumo.com" not in self.driver.current_url:
+                self.driver.get("https://www.parfumo.com")
+
+            # Wait for any modal backdrop to disappear before interacting with the page
+            try:
+                WebDriverWait(self.driver, 5).until(
+                    EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.pm-backdrop"))
+                )
+            except TimeoutException:
+                # Backdrop didn't disappear — try dismissing it via Escape key
+                self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+                WebDriverWait(self.driver, 3).until(
+                    EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.pm-backdrop"))
+                )
+
             search_input = self._wait.until(
-                EC.presence_of_element_located((By.ID, "s_top"))
+                EC.element_to_be_clickable((By.ID, "s_top"))
             )
-            search_input.clear()
+
+            # Clear any previous search — select-all + delete is more reliable than .clear()
+            search_input.click()
+            search_input.send_keys(Keys.CONTROL + "a")
+            search_input.send_keys(Keys.DELETE)
+
+            # Wait for livesearch to disappear (stale results gone) before typing
+            try:
+                WebDriverWait(self.driver, 2).until(
+                    EC.invisibility_of_element_located((By.CSS_SELECTOR, ".ls-perfume-item"))
+                )
+            except TimeoutException:
+                pass  # fine if it was already gone
+
             search_input.send_keys(fragrance_name)
 
-            # Wait for at least one result to appear
+            # Wait for fresh results to appear
             self._wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".ls-perfume-item"))
             )
+            # Small pause to let all results render
+            time.sleep(0.5)
         except TimeoutException:
             return []
 
@@ -122,9 +174,17 @@ class ReviewSubmitter(BaseSubmitter):
         results: list[tuple[str, str]] = []
         for item in items:
             try:
-                name = item.find_element(
-                    By.CSS_SELECTOR, ".ls-perfume-info .name"
-                ).text.strip()
+                name_el = item.find_element(By.CSS_SELECTOR, ".ls-perfume-info .name")
+                # Get only the direct text, excluding child span labels like "Eau de Toilette"
+                name = self.driver.execute_script(
+                    "return Array.from(arguments[0].childNodes)"
+                    ".filter(n => n.nodeType === 3)"
+                    ".map(n => n.textContent)"
+                    ".join('').trim();",
+                    name_el
+                )
+                if not name:
+                    name = name_el.text.strip()
                 overlay = item.find_element(By.CSS_SELECTOR, ".ls-perfume-overlay")
                 url = overlay.get_attribute("href") or ""
                 if name and url:
@@ -185,6 +245,20 @@ class ReviewSubmitter(BaseSubmitter):
             )
             textarea.clear()
             textarea.send_keys(item.review_text)
+
+            # Fill the title field (required by Parfumo)
+            try:
+                title_field = self.driver.find_element(
+                    By.CSS_SELECTOR, "input.form_review_title"
+                )
+                title_field.clear()
+                title = item.review_title or item.fragrance_name
+                title_field.send_keys(title[:200])  # Parfumo maxlength=200
+            except NoSuchElementException:
+                logger.warning(
+                    "Review title field not found for '%s' — submitting without title",
+                    item.fragrance_name,
+                )
         except TimeoutException:
             logger.error(
                 "Review textarea not found for '%s' by '%s'",
