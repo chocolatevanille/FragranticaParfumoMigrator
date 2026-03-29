@@ -36,7 +36,7 @@ def _make_submitter() -> ReviewSubmitter:
     submitter = ReviewSubmitter(driver=driver, confidence_threshold=0)
     # Bypass matching/navigation so routing is the only variable
     submitter._search_autocomplete = MagicMock(
-        return_value=[("Some Fragrance", "https://parfumo.com/x")]
+        return_value=[("Some Fragrance", "", "https://parfumo.com/x")]
     )
     submitter._verify_page = MagicMock(return_value=True)
     submitter.driver.get = MagicMock()

@@ -40,8 +40,8 @@ class ReviewSubmitter(BaseSubmitter):
             )
 
         scored = [
-            (name, url, score_candidate(item.fragrance_name, item.brand, name))
-            for name, url in candidates
+            (name, url, score_candidate(item.fragrance_name, item.brand, name, candidate_brand))
+            for name, candidate_brand, url in candidates
         ]
         best_name, best_url, best_score = max(scored, key=lambda t: t[2])
 
@@ -67,7 +67,7 @@ class ReviewSubmitter(BaseSubmitter):
             )
 
         # Navigate to the matched fragrance page
-        chosen_url = next(url for name, url, _ in scored if name == chosen_name)
+        chosen_url = next(url for name, _, url in scored if name == chosen_name)
         try:
             self.driver.get(chosen_url)
         except WebDriverException as exc:
@@ -169,7 +169,7 @@ class ReviewSubmitter(BaseSubmitter):
             return []
 
         items = self.driver.find_elements(By.CSS_SELECTOR, ".ls-perfume-item")
-        results: list[tuple[str, str]] = []
+        results: list[tuple[str, str, str]] = []
         for item in items:
             try:
                 name_el = item.find_element(By.CSS_SELECTOR, ".ls-perfume-info .name")
@@ -183,10 +183,15 @@ class ReviewSubmitter(BaseSubmitter):
                 )
                 if not name:
                     name = name_el.text.strip()
+                try:
+                    brand_el = item.find_element(By.CSS_SELECTOR, ".ls-perfume-info .brand")
+                    candidate_brand = brand_el.text.strip()
+                except NoSuchElementException:
+                    candidate_brand = ""
                 overlay = item.find_element(By.CSS_SELECTOR, ".ls-perfume-overlay")
                 url = overlay.get_attribute("href") or ""
                 if name and url:
-                    results.append((name, url))
+                    results.append((name, candidate_brand, url))
             except NoSuchElementException:
                 continue
         return results

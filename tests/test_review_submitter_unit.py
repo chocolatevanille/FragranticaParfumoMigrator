@@ -70,7 +70,7 @@ def test_skip_with_warning_when_no_candidate_meets_threshold(
     item = _make_item(fragrance_name="Light Blue", brand="Dolce & Gabbana")
 
     # Patch _search_autocomplete to return a low-scoring candidate
-    low_score_candidate = ("Some Unrelated Fragrance Brand", "https://parfumo.de/x")
+    low_score_candidate = ("Some Unrelated Fragrance Brand", "", "https://parfumo.de/x")
     submitter._search_autocomplete = MagicMock(return_value=[low_score_candidate])
 
     with caplog.at_level(logging.WARNING, logger="migrator.review_submitter"):
@@ -126,7 +126,7 @@ def test_failed_when_parfumo_modal_does_not_close(
 
     # Provide a high-scoring candidate so matching succeeds
     submitter._search_autocomplete = MagicMock(
-        return_value=[("Light Blue Dolce Gabbana", "https://parfumo.de/lb")]
+        return_value=[("Light Blue Dolce Gabbana", "", "https://parfumo.de/lb")]
     )
 
     # Patch _verify_page to pass
@@ -177,7 +177,7 @@ def test_skipped_when_review_textarea_not_found(
     item = _make_item(fragrance_name="Shalimar", brand="Guerlain")
 
     submitter._search_autocomplete = MagicMock(
-        return_value=[("Shalimar Guerlain", "https://parfumo.de/shalimar")]
+        return_value=[("Shalimar Guerlain", "", "https://parfumo.de/shalimar")]
     )
     submitter._verify_page = MagicMock(return_value=True)
 
@@ -211,7 +211,7 @@ def _make_submitter_with_matching(threshold: int = 0) -> ReviewSubmitter:
     """Return a submitter with autocomplete and page verification pre-mocked."""
     submitter = _make_submitter(threshold=threshold)
     submitter._search_autocomplete = MagicMock(
-        return_value=[("Test Fragrance Brand", "https://parfumo.com/x")]
+        return_value=[("Test Fragrance Brand", "", "https://parfumo.com/x")]
     )
     submitter._verify_page = MagicMock(return_value=True)
     submitter.driver.get = MagicMock()

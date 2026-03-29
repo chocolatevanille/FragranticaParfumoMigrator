@@ -3,20 +3,28 @@ from typing import Optional
 from rapidfuzz import fuzz
 
 
-def score_candidate(fragrance_name: str, brand: str, candidate: str) -> int:
+def score_candidate(fragrance_name: str, brand: str, candidate: str, candidate_brand: str = "") -> int:
     """Score a candidate string against the fragrance name and brand.
 
-    Uses the higher of two scores:
-    - name-only: token_sort_ratio(fragrance_name, candidate)
-    - combined:  token_sort_ratio("{fragrance_name} {brand}", candidate)
+    Scores are computed against the combined "{name} {brand}" string on both
+    sides so that brand similarity contributes positively and brand mismatch
+    penalises the score.
 
-    The name-only score prevents the brand tokens from penalising candidates
-    that are an exact name match but don't include the brand (e.g. Parfumo
-    autocomplete returns just the fragrance name without the brand).
+    Three scores are taken and the maximum is returned:
+    - name-only:      token_sort_ratio(fragrance_name, candidate)
+    - combined query: token_sort_ratio("{fragrance_name} {brand}", candidate)
+    - combined both:  token_sort_ratio("{fragrance_name} {brand}", "{candidate} {candidate_brand}")
+                      (only when candidate_brand is provided)
     """
     name_score = fuzz.token_sort_ratio(fragrance_name, candidate)
     combined_score = fuzz.token_sort_ratio(f"{fragrance_name} {brand}", candidate)
-    return max(name_score, combined_score)
+    scores = [name_score, combined_score]
+    if candidate_brand:
+        both_score = fuzz.token_sort_ratio(
+            f"{fragrance_name} {brand}", f"{candidate} {candidate_brand}"
+        )
+        scores.append(both_score)
+    return max(scores)
 
 
 def select_best(
