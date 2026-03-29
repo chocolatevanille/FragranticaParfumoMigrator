@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import traceback
 
 from selenium.webdriver.common.by import By
@@ -251,6 +252,10 @@ class Migrator:
                         reason="Unexpected exception during submission",
                     )
                 results.append(result)
+                if result.status == SubmissionStatus.SUCCESS:
+                    logger.debug("Waiting 5 seconds before next submission")
+                    time.sleep(5)
+                    driver.execute_script("window.scrollTo(0, 0);")
 
             # 7. Aggregate into report
             return _build_report(results)

@@ -90,6 +90,7 @@ def test_auth_before_any_submission(items: list[ScrapedItem]) -> None:
     with (
         patch("migrator.migrator.create_driver", return_value=mock_driver),
         patch("migrator.migrator._authenticate", side_effect=_fake_authenticate),
+        patch("migrator.migrator.time.sleep"),
     ):
         report = migrator.run(config)
 

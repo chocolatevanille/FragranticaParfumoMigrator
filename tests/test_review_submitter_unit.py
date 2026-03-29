@@ -10,7 +10,7 @@ import pytest
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
 
-from migrator.models import ScrapedItem, SubmissionStatus
+from migrator.models import ScrapedItem, SubmissionResult, SubmissionStatus
 from migrator.review_submitter import ReviewSubmitter, _WAIT_TIMEOUT
 
 
@@ -198,6 +198,124 @@ def test_skipped_when_review_textarea_not_found(
     assert result.status == SubmissionStatus.SKIPPED
     assert result.reason is not None
     assert "textarea" in result.reason.lower()
+
+    error_messages = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("Shalimar" in m for m in error_messages)
+
+
+# ---------------------------------------------------------------------------
+# Requirements 7.2, 7.3, 7.9 — Statement routing boundary conditions
+# ---------------------------------------------------------------------------
+
+def _make_submitter_with_matching(threshold: int = 0) -> ReviewSubmitter:
+    """Return a submitter with autocomplete and page verification pre-mocked."""
+    submitter = _make_submitter(threshold=threshold)
+    submitter._search_autocomplete = MagicMock(
+        return_value=[("Test Fragrance Brand", "https://parfumo.com/x")]
+    )
+    submitter._verify_page = MagicMock(return_value=True)
+    submitter.driver.get = MagicMock()
+    return submitter
+
+
+def test_exactly_140_chars_routes_to_statement() -> None:
+    """A review_text of exactly 140 chars must be routed to _fill_and_submit_statement.
+
+    Validates: Requirements 7.2
+    """
+    submitter = _make_submitter_with_matching()
+    item = ScrapedItem(
+        fragrance_name="Shalimar",
+        brand="Guerlain",
+        review_text="x" * 140,
+    )
+
+    statement_result = SubmissionResult(item=item, status=SubmissionStatus.SUCCESS)
+    with (
+        patch.object(submitter, "_fill_and_submit_statement", return_value=statement_result) as mock_stmt,
+        patch.object(submitter, "_fill_and_submit_review") as mock_rev,
+    ):
+        result = submitter.submit(item)
+
+    mock_stmt.assert_called_once()
+    mock_rev.assert_not_called()
+    assert result.status == SubmissionStatus.SUCCESS
+
+
+def test_exactly_300_chars_routes_to_review() -> None:
+    """A review_text of exactly 300 chars must be routed to _fill_and_submit_review.
+
+    Validates: Requirements 7.1
+    """
+    submitter = _make_submitter_with_matching()
+    item = ScrapedItem(
+        fragrance_name="Shalimar",
+        brand="Guerlain",
+        review_text="x" * 300,
+    )
+
+    review_result = SubmissionResult(item=item, status=SubmissionStatus.SUCCESS)
+    with (
+        patch.object(submitter, "_fill_and_submit_review", return_value=review_result) as mock_rev,
+        patch.object(submitter, "_fill_and_submit_statement") as mock_stmt,
+    ):
+        result = submitter.submit(item)
+
+    mock_rev.assert_called_once()
+    mock_stmt.assert_not_called()
+    assert result.status == SubmissionStatus.SUCCESS
+
+
+def test_incompatible_length_returns_skipped_with_reason() -> None:
+    """A review_text of 141–299 chars must return SKIPPED with 'incompatible length'.
+
+    Validates: Requirements 7.3
+    """
+    submitter = _make_submitter_with_matching()
+    item = ScrapedItem(
+        fragrance_name="Shalimar",
+        brand="Guerlain",
+        review_text="x" * 200,  # 141–299 range
+    )
+
+    with (
+        patch.object(submitter, "_fill_and_submit_review") as mock_rev,
+        patch.object(submitter, "_fill_and_submit_statement") as mock_stmt,
+    ):
+        result = submitter.submit(item)
+
+    mock_rev.assert_not_called()
+    mock_stmt.assert_not_called()
+    assert result.status == SubmissionStatus.SKIPPED
+    assert result.reason is not None
+    assert "incompatible length" in result.reason
+
+
+def test_statement_panel_timeout_returns_skipped_with_error_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When _wait.until raises TimeoutException on .pd_statement_panel,
+    submit returns SKIPPED and logs an ERROR containing the fragrance name.
+
+    Validates: Requirements 7.9
+    """
+    submitter = _make_submitter_with_matching()
+    item = ScrapedItem(
+        fragrance_name="Shalimar",
+        brand="Guerlain",
+        review_text="x" * 100,  # <= 140, routes to statement path
+    )
+
+    # _wait.until raises TimeoutException on the first call (panel button)
+    submitter._wait = MagicMock()
+    submitter._wait.until.side_effect = TimeoutException()
+
+    with caplog.at_level(logging.ERROR, logger="migrator.review_submitter"):
+        result = submitter.submit(item)
+
+    assert result.status == SubmissionStatus.SKIPPED
+    assert result.reason is not None
+    assert "Statement panel" in result.reason
 
     error_messages = [r.message for r in caplog.records if r.levelno == logging.ERROR]
     assert any("Shalimar" in m for m in error_messages)

@@ -25,27 +25,7 @@ class ReviewSubmitter(BaseSubmitter):
         self._wait = WebDriverWait(driver, _WAIT_TIMEOUT)
 
     def submit(self, item: ScrapedItem) -> SubmissionResult:
-        """Find the fragrance on Parfumo and submit the review."""
-        # TODO: Reviews shorter than 300 characters should be posted as Statements
-        # instead of Reviews. Parfumo rejects reviews below this threshold.
-        # For now, skip them with an informative reason.
-        if len(item.review_text) < 300:
-            logger.warning(
-                "Skipping '%s' by '%s': review text is %d chars (minimum 300). "
-                "Consider posting as a Statement instead.",
-                item.fragrance_name,
-                item.brand,
-                len(item.review_text),
-            )
-            return SubmissionResult(
-                item=item,
-                status=SubmissionStatus.SKIPPED,
-                reason=(
-                    f"Review too short ({len(item.review_text)} chars, minimum 300). "
-                    "Post as a Statement instead (not yet implemented)."
-                ),
-            )
-
+        """Find the fragrance on Parfumo and submit the review or statement."""
         candidates = self._search_autocomplete(item.fragrance_name)
         if not candidates:
             logger.warning(
@@ -112,8 +92,26 @@ class ReviewSubmitter(BaseSubmitter):
                 reason="Page name/brand did not match expected fragrance",
             )
 
-        # Open the review panel and fill in the review
-        return self._fill_and_submit_review(item, chosen_name)
+        # Route by review text length (Requirement 7)
+        text_len = len(item.review_text)
+        if text_len >= 300:
+            return self._fill_and_submit_review(item, chosen_name)
+        elif text_len <= 140:
+            return self._fill_and_submit_statement(item)
+        else:
+            # 141–299 chars: incompatible with both formats
+            logger.warning(
+                "Skipping '%s' by '%s': review text is %d chars "
+                "(incompatible length: too long for a Statement and too short for a Review)",
+                item.fragrance_name,
+                item.brand,
+                text_len,
+            )
+            return SubmissionResult(
+                item=item,
+                status=SubmissionStatus.SKIPPED,
+                reason="incompatible length: too long for a Statement and too short for a Review",
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -213,6 +211,91 @@ class ReviewSubmitter(BaseSubmitter):
         name_score = score_candidate(expected_name, expected_brand, displayed_name)
         brand_score = score_candidate(expected_brand, "", displayed_brand)
         return name_score >= self.confidence_threshold or brand_score >= self.confidence_threshold
+
+    def _fill_and_submit_statement(self, item: ScrapedItem) -> SubmissionResult:
+        """Click the Statement panel button, fill the textarea, and submit."""
+        # Click the statement panel trigger to open the modal
+        try:
+            statement_panel_btn = self._wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".pd_statement_panel"))
+            )
+            statement_panel_btn.click()
+        except TimeoutException:
+            logger.error(
+                "Statement panel button not found for '%s'",
+                item.fragrance_name,
+            )
+            return SubmissionResult(
+                item=item,
+                status=SubmissionStatus.SKIPPED,
+                reason="Statement panel button not found on page",
+            )
+
+        # Wait for the statement textarea
+        try:
+            textarea = self._wait.until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "textarea.form_statement_text")
+                )
+            )
+            textarea.clear()
+            textarea.send_keys(item.review_text)
+            # NOTE: Statements have no title field — do not interact with any title input
+        except TimeoutException:
+            logger.error(
+                "Statement textarea not found for '%s'",
+                item.fragrance_name,
+            )
+            return SubmissionResult(
+                item=item,
+                status=SubmissionStatus.SKIPPED,
+                reason="Statement textarea not found",
+            )
+
+        # Click the submit button
+        try:
+            submit_btn = self._wait.until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, "button.action_submit_statement")
+                )
+            )
+            submit_btn.click()
+        except TimeoutException:
+            logger.error(
+                "Statement submit button not found for '%s'",
+                item.fragrance_name,
+            )
+            return SubmissionResult(
+                item=item,
+                status=SubmissionStatus.SKIPPED,
+                reason="Statement submit button not found",
+            )
+
+        # Wait for the submit button to disappear (modal closes on success)
+        try:
+            self._wait.until(
+                EC.invisibility_of_element_located(
+                    (By.CSS_SELECTOR, "button.action_submit_statement")
+                )
+            )
+        except TimeoutException:
+            logger.error(
+                "Statement submission may have failed for '%s' by '%s' — modal did not close",
+                item.fragrance_name,
+                item.brand,
+            )
+            return SubmissionResult(
+                item=item,
+                status=SubmissionStatus.FAILED,
+                reason="Parfumo did not confirm statement submission (modal stayed open)",
+            )
+
+        logger.info(
+            "Statement submitted for '%s' by '%s'",
+            item.fragrance_name,
+            item.brand,
+        )
+        return SubmissionResult(item=item, status=SubmissionStatus.SUCCESS)
 
     def _fill_and_submit_review(
         self, item: ScrapedItem, matched_name: str

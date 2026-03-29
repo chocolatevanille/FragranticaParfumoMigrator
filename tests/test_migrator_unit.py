@@ -183,6 +183,7 @@ def test_unexpected_submit_exception_marks_item_failed_and_continues():
     with (
         patch("migrator.migrator.create_driver", return_value=MagicMock()),
         patch("migrator.migrator._authenticate"),
+        patch("migrator.migrator.time.sleep"),
     ):
         report = migrator.run(_make_config())
 
@@ -224,6 +225,7 @@ def test_successful_run_report_totals():
     with (
         patch("migrator.migrator.create_driver", return_value=MagicMock()),
         patch("migrator.migrator._authenticate"),
+        patch("migrator.migrator.time.sleep"),
     ):
         report = migrator.run(_make_config())
 
