@@ -253,8 +253,8 @@ class Migrator:
                     )
                 results.append(result)
                 if result.status == SubmissionStatus.SUCCESS:
-                    logger.debug("Waiting 5 seconds before next submission")
-                    time.sleep(5)
+                    logger.debug("Waiting 3 seconds before next submission")
+                    time.sleep(3)
                     driver.execute_script("window.scrollTo(0, 0);")
 
             # 7. Aggregate into report
