@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "fragrantica-to-parfumo-migrator"
+version = "0.1.0"
+description = "Migrate fragrance data from Fragrantica to Parfumo"
+requires-python = ">=3.11"
+dependencies = [
+    "selenium",
+    "webdriver-manager",
+    "beautifulsoup4",
+    "rapidfuzz",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hypothesis",
+    "pytest",
+]
+
+[project.scripts]
+fragrantica-migrator = "migrator.cli:main"
+
+[tool.pytest.ini_options]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: requires a real browser and network access",
+]
