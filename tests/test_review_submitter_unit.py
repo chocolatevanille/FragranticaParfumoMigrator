@@ -21,7 +21,7 @@ from migrator.review_submitter import ReviewSubmitter, _WAIT_TIMEOUT
 def _make_item(
     fragrance_name: str = "Light Blue",
     brand: str = "Dolce & Gabbana",
-    review_text: str = "A lovely fresh scent.",
+    review_text: str = "A lovely fresh scent. " * 20,  # >300 chars to bypass short-review guard
 ) -> ScrapedItem:
     return ScrapedItem(
         fragrance_name=fragrance_name,
