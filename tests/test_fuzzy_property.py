@@ -44,28 +44,20 @@ def test_score_is_bounded(name: str, brand: str, candidate: str) -> None:
 def test_score_order_insensitive(name: str, brand: str, candidate: str) -> None:
     """Validates: Requirements 2.2
 
-    token_sort_ratio sorts tokens before comparing, so reversing the word
-    order of the combined query must yield the same score.
+    token_sort_ratio sorts tokens before comparing, so swapping name and brand
+    in the combined query must yield the same score, since the combined string
+    "{name} {brand}" and "{brand} {name}" produce the same sorted token set.
     """
-    # Normal order: "{name} {brand}"
+    # Normal order: query = "{name} {brand}"
     score_normal = score_candidate(name, brand, candidate)
 
-    # Reversed word order: split the combined query and reverse the words
-    combined = f"{name} {brand}"
-    reversed_combined = " ".join(combined.split()[::-1])
+    # Swapped order: query = "{brand} {name}" — token_sort_ratio is order-insensitive
+    # so both calls must produce the same score.
+    score_swapped = score_candidate(brand, name, candidate)
 
-    # Build a reversed-order name/brand pair that produces the reversed query.
-    # We pass the reversed string as the name and an empty brand so the
-    # combined query inside score_candidate becomes "{reversed_combined} ".
-    # To keep it clean, call fuzz directly with the reversed query instead.
-    from rapidfuzz import fuzz
-
-    score_reversed = fuzz.token_sort_ratio(reversed_combined, candidate)
-
-    # token_sort_ratio is order-insensitive: both scores must be equal.
-    assert score_normal == score_reversed, (
-        f"Score changed with word-order swap: "
-        f"normal={score_normal}, reversed={score_reversed} "
+    assert score_normal == score_swapped, (
+        f"Score changed with name/brand swap: "
+        f"normal={score_normal}, swapped={score_swapped} "
         f"(name={name!r}, brand={brand!r}, candidate={candidate!r})"
     )
 
